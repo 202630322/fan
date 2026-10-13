@@ -1,44 +1,1042 @@
-
-
-
-
 <!DOCTYPE html>
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>웹 문서</title>
+    <title>Baseball Umpire Simulator 3D - Stadium & Windup Edition</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Three.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Font Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&display=swap" rel="stylesheet">
     <style>
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            line-height: 1.6;
-            margin: 0;
-            padding: 40px;
-            background-color: #f8f9fa;
-            color: #333;
+            font-family: 'Inter', sans-serif;
+            user-select: none;
+            overflow: hidden;
+            background-color: #030712;
         }
-        .container {
-            max-width: 800px;
-            margin: 0 auto;
-            background: #ffffff;
-            padding: 30px;
-            border-radius: 8px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
         }
-        h1 {
-            color: #2c3e50;
-            border-bottom: 2px solid #3498db;
-            padding-bottom: 10px;
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
         }
-        p {
-            font-size: 1.1em;
+        @keyframes callPop {
+            0% { transform: scale(0.5) translateY(20px); opacity: 0; }
+            50% { transform: scale(1.1) translateY(-5px); opacity: 1; }
+            100% { transform: scale(1) translateY(0); opacity: 1; }
+        }
+        .animate-pop {
+            animation: callPop 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
         }
     </style>
 </head>
-<body>
-    <div class="container">
-        <h1>안녕하세요!</h1>
-        <p>요청하신 HTML 파일이 성공적으로 생성되었습니다.</p>
+<body class="text-white relative select-none">
+
+    <div id="canvas-container"></div>
+
+    <!-- UI Overlay -->
+    <div id="ui-overlay" class="relative z-10 w-full h-screen pointer-events-none flex flex-col justify-between p-4 md:p-6">
+        
+        <!-- TOP HUD -->
+        <div class="flex justify-between items-start gap-4">
+            <!-- Score & Game Status -->
+            <div class="glass-panel rounded-2xl p-4 pointer-events-auto shadow-2xl min-w-[220px]">
+                <div class="flex justify-between items-center mb-2 border-b border-gray-700/60 pb-2">
+                    <span class="text-xs font-bold px-2.5 py-1 bg-blue-600/40 text-blue-300 rounded-full border border-blue-400/30">
+                        <i class="fa-solid fa-stadium mr-1"></i> 투수 뒤 시점 심판
+                    </span>
+                    <span id="inning-display" class="text-xs font-extrabold text-amber-400">1회초</span>
+                </div>
+                
+                <div class="grid grid-cols-2 gap-2 text-center my-2">
+                    <div class="bg-slate-800/90 p-2 rounded-xl border border-slate-700/50">
+                        <p class="text-[10px] text-gray-400 uppercase font-semibold">판정 정확도</p>
+                        <p id="accuracy-display" class="text-xl font-black text-emerald-400">100%</p>
+                    </div>
+                    <div class="bg-slate-800/90 p-2 rounded-xl border border-slate-700/50">
+                        <p class="text-[10px] text-gray-400 uppercase font-semibold">연속 성공</p>
+                        <p id="streak-display" class="text-xl font-black text-amber-400">0회</p>
+                    </div>
+                </div>
+
+                <!-- Count Indicators -->
+                <div class="flex justify-around items-center pt-1 text-sm font-bold">
+                    <div class="flex items-center gap-1.5">
+                        <span class="text-blue-400 text-xs">B</span>
+                        <div class="flex gap-1" id="balls-indicator"></div>
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                        <span class="text-red-400 text-xs">S</span>
+                        <div class="flex gap-1" id="strikes-indicator"></div>
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                        <span class="text-amber-500 text-xs">O</span>
+                        <div class="flex gap-1" id="outs-indicator"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Pitch Stats Box & Target Radar -->
+            <div class="glass-panel rounded-2xl p-3 md:p-4 pointer-events-auto flex flex-col items-center min-w-[170px]">
+                <div class="text-center">
+                    <span class="text-[10px] text-gray-400 uppercase font-bold tracking-wider">구속 / 구종</span>
+                    <div id="pitch-speed-display" class="text-2xl md:text-3xl font-black text-amber-300 tracking-tight">--- km/h</div>
+                    <div id="pitch-type-display" class="text-xs font-bold text-emerald-400 mt-0.5">와인드업 대기</div>
+                </div>
+                <!-- Precision Radar Plate Box -->
+                <div class="relative w-24 h-32 bg-slate-950/90 border-2 border-slate-700 rounded-lg my-2 flex items-center justify-center overflow-hidden shadow-inner">
+                    <div class="absolute inset-2 border-2 border-emerald-500/80 bg-emerald-500/10 rounded-sm"></div>
+                    <div id="radar-ball-dot" class="absolute w-3 h-3 rounded-full border border-white shadow-lg transition-all duration-300 hidden" style="top: 50%; left: 50%;"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- CENTER DISPLAY: Call Overlay Text -->
+        <div class="flex-1 flex items-center justify-center">
+            <div id="call-popup" class="hidden text-center transform pointer-events-none">
+                <span id="call-text" class="text-7xl md:text-9xl font-black italic tracking-wider drop-shadow-2xl">
+                    STRIKE!
+                </span>
+                <p id="feedback-text" class="text-xl md:text-3xl font-black mt-2 text-white drop-shadow-lg"></p>
+            </div>
+        </div>
+
+        <!-- BOTTOM ACTION BAR & BUTTONS -->
+        <div class="flex flex-col items-center gap-3 w-full max-w-xl mx-auto pb-2 pointer-events-auto">
+            <div id="pitch-status-bar" class="text-xs md:text-sm font-bold px-5 py-2 rounded-full bg-slate-900/90 border border-slate-700 text-amber-300 shadow-xl flex items-center gap-2">
+                <i class="fa-solid fa-spinner fa-spin text-amber-400"></i>
+                <span>투수가 와인드업 모션을 준비하고 있습니다...</span>
+            </div>
+
+            <!-- Umpire Decision Buttons -->
+            <div class="grid grid-cols-2 gap-4 w-full">
+                <!-- BALL Button -->
+                <button id="btn-ball" onclick="makeCall('BALL')" disabled class="opacity-40 cursor-not-allowed bg-gradient-to-b from-blue-600 to-blue-800 hover:from-blue-500 hover:to-blue-700 text-white font-black text-xl md:text-2xl py-4 rounded-2xl shadow-2xl transition active:scale-95 flex flex-col items-center justify-center border-b-4 border-blue-950">
+                    <span>볼 (BALL)</span>
+                    <span class="text-[11px] font-normal opacity-80 mt-0.5">[← 키보드 방향키]</span>
+                </button>
+
+                <!-- STRIKE Button -->
+                <button id="btn-strike" onclick="makeCall('STRIKE')" disabled class="opacity-40 cursor-not-allowed bg-gradient-to-b from-red-600 to-red-800 hover:from-red-500 hover:to-red-700 text-white font-black text-xl md:text-2xl py-4 rounded-2xl shadow-2xl transition active:scale-95 flex flex-col items-center justify-center border-b-4 border-red-950">
+                    <span>스트라이크 (STRIKE)</span>
+                    <span class="text-[11px] font-normal opacity-80 mt-0.5">[방향키 →]</span>
+                </button>
+            </div>
+
+            <!-- Option Bar -->
+            <div class="flex items-center justify-between w-full px-2 text-xs text-gray-300">
+                <div class="flex items-center gap-2">
+                    <button onclick="toggleStrikeZone()" class="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800/80 hover:bg-slate-700 rounded-xl border border-slate-700 transition">
+                        <i id="zone-icon" class="fa-solid fa-eye text-emerald-400"></i>
+                        <span>존 표시</span>
+                    </button>
+                    <button onclick="togglePitchTrail()" class="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800/80 hover:bg-slate-700 rounded-xl border border-slate-700 transition">
+                        <i id="trail-icon" class="fa-solid fa-route text-amber-400"></i>
+                        <span>궤적 표시</span>
+                    </button>
+                </div>
+                <button onclick="openSettingsModal()" class="px-3 py-1.5 bg-slate-800/80 hover:bg-slate-700 rounded-xl border border-slate-700 transition flex items-center gap-1.5">
+                    <i class="fa-solid fa-sliders"></i>
+                    <span>설정</span>
+                </button>
+            </div>
+        </div>
     </div>
+
+    <div id="settings-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md hidden">
+        <div class="glass-panel p-6 rounded-3xl max-w-md w-full mx-4 border border-slate-700 shadow-2xl text-sm">
+            <div class="flex justify-between items-center mb-4 border-b border-slate-700 pb-3">
+                <h3 class="text-lg font-bold flex items-center gap-2">
+                    <i class="fa-solid fa-sliders text-blue-400"></i> 시뮬레이터 설정
+                </h3>
+                <button onclick="closeSettingsModal()" class="text-gray-400 hover:text-white"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            
+            <div class="space-y-4">
+                <div>
+                    <label class="block font-semibold mb-1 text-gray-300">다음 투구 진행 속도</label>
+                    <select id="select-auto-delay" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-white focus:outline-none">
+                        <option value="1000">빠름 (1초 후)</option>
+                        <option value="1500" selected>보통 (1.5초 후)</option>
+                        <option value="2500">여유있게 (2.5초 후)</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block font-semibold mb-1 text-gray-300">투수 구종 및 피칭 난이도</label>
+                    <select id="select-difficulty" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-white focus:outline-none">
+                        <option value="easy">쉬움 (직구 중심)</option>
+                        <option value="normal" selected>보통 (변화구 조합)</option>
+                        <option value="hard">프로 (경계선 피칭 & 급변화구)</option>
+                    </select>
+                </div>
+
+                <div class="pt-2 border-t border-slate-700 flex justify-end">
+                    <button onclick="closeSettingsModal()" class="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl transition">
+                        확인 및 저장
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const CONFIG = {
+            moundZ: 0,              // Pitcher mound position
+            plateZ: -18.44,         // Home plate position
+            ballRadius: 0.037,      // Exact official baseball radius (7.4cm diameter = 0.037m scale)
+            
+            // Official Strike Zone Bounds (Real scale relative to ground)
+            zoneBottom: 0.48,       // Knee height (~0.48m)
+            zoneTop: 1.05,          // Mid-chest height (~1.05m)
+            zoneWidth: 0.43,        // Official plate width (17 inches = 0.43m)
+        };
+
+        let state = {
+            difficulty: 'normal',
+            autoNextDelay: 1500,
+            
+            totalCalls: 0,
+            correctCalls: 0,
+            currentStreak: 0,
+            
+            balls: 0,
+            strikes: 0,
+            outs: 0,
+            inning: 1,
+
+            isWindup: false,
+            isPitching: false,
+            pitchComplete: false,
+            userCalled: false,
+            showZone: true,
+            showTrail: true,
+
+            currentPitch: null,
+            nextPitchTimer: null,
+            windupStartTime: 0
+        };
+
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        let audioCtx = null;
+
+        function initAudio() {
+            if (!audioCtx) audioCtx = new AudioContext();
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+        }
+
+        function playSound(type) {
+            try {
+                initAudio();
+                const now = audioCtx.currentTime;
+
+                if (type === 'catch') {
+                    // Leather glove catch sound
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(220, now);
+                    osc.frequency.exponentialRampToValueAtTime(30, now + 0.08);
+                    gain.gain.setValueAtTime(0.9, now);
+                    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.08);
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    osc.start(now);
+                    osc.stop(now + 0.08);
+                } else if (type === 'swing') {
+                    // Bat wooosh sound
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(100, now);
+                    osc.frequency.linearRampToValueAtTime(350, now + 0.12);
+                    gain.gain.setValueAtTime(0.3, now);
+                    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    osc.start(now);
+                    osc.stop(now + 0.15);
+                } else if (type === 'strikeCall') {
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.type = 'sawtooth';
+                    osc.frequency.setValueAtTime(320, now);
+                    osc.frequency.linearRampToValueAtTime(580, now + 0.2);
+                    gain.gain.setValueAtTime(0.5, now);
+                    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    osc.start(now);
+                    osc.stop(now + 0.25);
+                } else if (type === 'ballCall') {
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(240, now);
+                    osc.frequency.exponentialRampToValueAtTime(120, now + 0.2);
+                    gain.gain.setValueAtTime(0.4, now);
+                    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    osc.start(now);
+                    osc.stop(now + 0.2);
+                }
+            } catch (e) {}
+        }
+
+        let scene, camera, renderer;
+        let baseball, strikeZoneBox, pitchTrailPoints = [];
+        let pitcherGroup, batterGroup, catcherGroup, umpireGroup;
+
+        // Character Rigging Bones for Windup & Swing
+        let pitcherRig = {}, batterRig = {}, catcherRig = {}, umpireRig = {};
+
+        function init3D() {
+            const container = document.getElementById('canvas-container');
+
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x060c1a);
+            scene.fog = new THREE.FogExp2(0x060c1a, 0.008);
+
+            // CAMERA: Pitcher-behind view over pitcher shoulder towards Home Plate & Stadium
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 150);
+            camera.position.set(0, 2.3, 3.8);
+            camera.lookAt(0, 0.85, CONFIG.plateZ);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            container.appendChild(renderer.domElement);
+
+            // Ambient & Stadium Flood Lights
+            const ambient = new THREE.AmbientLight(0xffffff, 0.7);
+            scene.add(ambient);
+
+            const floodLight1 = new THREE.DirectionalLight(0xfff8e7, 1.3);
+            floodLight1.position.set(-25, 35, -10);
+            floodLight1.castShadow = true;
+            floodLight1.shadow.mapSize.width = 2048;
+            floodLight1.shadow.mapSize.height = 2048;
+            scene.add(floodLight1);
+
+            const floodLight2 = new THREE.DirectionalLight(0x7dd3fc, 0.7);
+            floodLight2.position.set(25, 30, -30);
+            scene.add(floodLight2);
+
+            buildStadium();
+            buildStrikeZone();
+            buildBaseball();
+            build3DCharacters();
+
+            window.addEventListener('resize', onWindowResize);
+        }
+
+        function buildStadium() {
+            // Field Dirt Infield Cutout
+            const dirtGeo = new THREE.CircleGeometry(22, 64);
+            const dirtMat = new THREE.MeshStandardMaterial({ color: 0x854d0e, roughness: 0.95 });
+            const dirt = new THREE.Mesh(dirtGeo, dirtMat);
+            dirt.rotation.x = -Math.PI / 2;
+            dirt.position.set(0, 0, -10);
+            dirt.receiveShadow = true;
+            scene.add(dirt);
+
+            // Outfield Grass
+            const grassGeo = new THREE.PlaneGeometry(160, 160);
+            const grassMat = new THREE.MeshStandardMaterial({ color: 0x14532d, roughness: 0.85 });
+            const grass = new THREE.Mesh(grassGeo, grassMat);
+            grass.rotation.x = -Math.PI / 2;
+            grass.position.set(0, -0.01, -50);
+            grass.receiveShadow = true;
+            scene.add(grass);
+
+            // Pitcher's Mound Dirt Mound Hill
+            const moundGeo = new THREE.CylinderGeometry(2.7, 3.2, 0.25, 32);
+            const moundMat = new THREE.MeshStandardMaterial({ color: 0x92400e, roughness: 0.9 });
+            const mound = new THREE.Mesh(moundGeo, moundMat);
+            mound.position.set(0, 0.08, CONFIG.moundZ);
+            mound.receiveShadow = true;
+            scene.add(mound);
+
+            // Pitcher's Rubber Plate
+            const rubberGeo = new THREE.BoxGeometry(0.6, 0.04, 0.15);
+            const rubberMat = new THREE.MeshStandardMaterial({ color: 0xffffff });
+            const rubber = new THREE.Mesh(rubberGeo, rubberMat);
+            rubber.position.set(0, 0.21, CONFIG.moundZ);
+            scene.add(rubber);
+
+            // Home Plate Pentagon
+            const plateShape = new THREE.Shape();
+            plateShape.moveTo(0, 0.215);
+            plateShape.lineTo(0.215, 0);
+            plateShape.lineTo(0.215, -0.215);
+            plateShape.lineTo(-0.215, -0.215);
+            plateShape.lineTo(-0.215, 0);
+            plateShape.closePath();
+
+            const plateGeo = new THREE.ShapeGeometry(plateShape);
+            const plateMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.2 });
+            const homePlate = new THREE.Mesh(plateGeo, plateMat);
+            homePlate.rotation.x = -Math.PI / 2;
+            homePlate.position.set(0, 0.005, CONFIG.plateZ);
+            scene.add(homePlate);
+
+            // Batter's Boxes & Catcher's Box (Chalk Lines)
+            const lineMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+            
+            // Left Batter Box Lines
+            const boxL = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.002, 1.8), lineMat);
+            boxL.position.set(-0.65, 0.006, CONFIG.plateZ);
+            scene.add(boxL);
+
+            // Right Batter Box Lines
+            const boxR = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.002, 1.8), lineMat);
+            boxR.position.set(0.65, 0.006, CONFIG.plateZ);
+            scene.add(boxR);
+
+            // Backstop Wall & Grandstands behind Home Plate
+            const wallGeo = new THREE.CylinderGeometry(28, 28, 4, 32, 1, true, Math.PI * 0.75, Math.PI * 0.5);
+            const wallMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, side: THREE.BackSide, roughness: 0.7 });
+            const backstopWall = new THREE.Mesh(wallGeo, wallMat);
+            backstopWall.position.set(0, 2, CONFIG.plateZ - 5);
+            scene.add(backstopWall);
+
+            // Stadium Spectator Stands (Tiered)
+            const standGeo = new THREE.CylinderGeometry(35, 30, 18, 32, 1, true, Math.PI * 0.7, Math.PI * 0.6);
+            const standMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, side: THREE.BackSide });
+            const stands = new THREE.Mesh(standGeo, standMat);
+            stands.position.set(0, 9, CONFIG.plateZ - 8);
+            scene.add(stands);
+
+            // Audience Block Particles / Crowd Seats
+            const crowdGroup = new THREE.Group();
+            const crowdColors = [0xef4444, 0x3b82f6, 0xeab308, 0x10b981, 0x94a3b8];
+            for (let i = 0; i < 350; i++) {
+                const angle = (Math.random() - 0.5) * Math.PI * 0.55 - Math.PI / 2;
+                const radius = 31 + Math.random() * 4;
+                const crowdDot = new THREE.Mesh(
+                    new THREE.BoxGeometry(0.4, 0.5, 0.4),
+                    new THREE.MeshBasicMaterial({ color: crowdColors[Math.floor(Math.random() * crowdColors.length)] })
+                );
+                crowdDot.position.set(
+                    Math.cos(angle) * radius,
+                    4 + Math.random() * 10,
+                    CONFIG.plateZ - 8 + Math.sin(angle) * radius
+                );
+                crowdGroup.add(crowdDot);
+            }
+            scene.add(crowdGroup);
+
+            // Stadium Floodlight Towers
+            createLightTower(-18, CONFIG.plateZ - 10);
+            createLightTower(18, CONFIG.plateZ - 10);
+        }
+
+        function createLightTower(x, z) {
+            const towerGroup = new THREE.Group();
+            const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.5, 22), new THREE.MeshStandardMaterial({ color: 0x475569 }));
+            pole.position.y = 11;
+            towerGroup.add(pole);
+
+            const grid = new THREE.Mesh(new THREE.BoxGeometry(4, 3, 0.5), new THREE.MeshStandardMaterial({ color: 0x334155 }));
+            grid.position.set(0, 22, 0);
+            towerGroup.add(grid);
+
+            // Bright bulb halos
+            const bulbMat = new THREE.MeshBasicMaterial({ color: 0xfffbeb });
+            for (let r = 0; r < 3; r++) {
+                for (let c = 0; c < 4; c++) {
+                    const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.3, 8, 8), bulbMat);
+                    bulb.position.set(-1.3 + c * 0.86, 21.2 + r * 0.8, 0.3);
+                    towerGroup.add(bulb);
+                }
+            }
+            towerGroup.position.set(x, 0, z);
+            scene.add(towerGroup);
+        }
+
+        function buildStrikeZone() {
+            const width = CONFIG.zoneWidth;
+            const height = CONFIG.zoneTop - CONFIG.zoneBottom;
+            const depth = 0.04;
+
+            const boxGeo = new THREE.BoxGeometry(width, height, depth);
+            const edgesGeo = new THREE.EdgesGeometry(boxGeo);
+            const lineMat = new THREE.LineBasicMaterial({ color: 0x10b981, linewidth: 3 });
+            
+            strikeZoneBox = new THREE.LineSegments(edgesGeo, lineMat);
+            strikeZoneBox.position.set(0, CONFIG.zoneBottom + height / 2, CONFIG.plateZ);
+            
+            const planeGeo = new THREE.PlaneGeometry(width, height);
+            const planeMat = new THREE.MeshBasicMaterial({
+                color: 0x10b981,
+                transparent: true,
+                opacity: 0.18,
+                side: THREE.DoubleSide
+            });
+            const innerMesh = new THREE.Mesh(planeGeo, planeMat);
+            strikeZoneBox.add(innerMesh);
+
+            scene.add(strikeZoneBox);
+        }
+
+        function buildBaseball() {
+            const ballGeo = new THREE.SphereGeometry(CONFIG.ballRadius, 32, 32);
+            const ballMat = new THREE.MeshStandardMaterial({
+                color: 0xffffff,
+                roughness: 0.3,
+                metalness: 0.05
+            });
+            baseball = new THREE.Mesh(ballGeo, ballMat);
+            baseball.castShadow = true;
+            baseball.position.set(0, 1.7, CONFIG.moundZ);
+            baseball.visible = false;
+            scene.add(baseball);
+        }
+
+        function createCharacterRig(uniformColor, capColor, isLeftHanded = false) {
+            const group = new THREE.Group();
+
+            const skinMat = new THREE.MeshStandardMaterial({ color: 0xd2a374, roughness: 0.6 });
+            const uniformMat = new THREE.MeshStandardMaterial({ color: uniformColor, roughness: 0.5 });
+            const capMat = new THREE.MeshStandardMaterial({ color: capColor, roughness: 0.5 });
+            const darkMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.8 });
+
+            // Torso
+            const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.18, 0.75), uniformMat);
+            torso.position.y = 0.85;
+            torso.castShadow = true;
+            group.add(torso);
+
+            // Head
+            const head = new THREE.Mesh(new THREE.SphereGeometry(0.14, 16, 16), skinMat);
+            head.position.y = 1.38;
+            head.castShadow = true;
+            group.add(head);
+
+            // Cap
+            const cap = new THREE.Mesh(new THREE.SphereGeometry(0.148, 16, 16, 0, Math.PI * 2, 0, Math.PI / 2), capMat);
+            cap.position.y = 1.4;
+            group.add(cap);
+
+            // Right Arm Pivot & Arm
+            const armRPivot = new THREE.Group();
+            armRPivot.position.set(0.28, 1.15, 0);
+            const armR = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.05, 0.55), uniformMat);
+            armR.position.y = -0.25;
+            armRPivot.add(armR);
+            group.add(armRPivot);
+
+            // Left Arm Pivot & Arm
+            const armLPivot = new THREE.Group();
+            armLPivot.position.set(-0.28, 1.15, 0);
+            const armL = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.05, 0.55), uniformMat);
+            armL.position.y = -0.25;
+            armLPivot.add(armL);
+            group.add(armLPivot);
+
+            // Legs
+            const legLPivot = new THREE.Group();
+            legLPivot.position.set(-0.11, 0.5, 0);
+            const legL = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.06, 0.65), uniformMat);
+            legL.position.y = -0.25;
+            legLPivot.add(legL);
+            group.add(legLPivot);
+
+            const legRPivot = new THREE.Group();
+            legRPivot.position.set(0.11, 0.5, 0);
+            const legR = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.06, 0.65), uniformMat);
+            legR.position.y = -0.25;
+            legRPivot.add(legR);
+            group.add(legRPivot);
+
+            return {
+                group,
+                armRPivot,
+                armLPivot,
+                legLPivot,
+                legRPivot,
+                torso, head
+            };
+        }
+
+        function build3DCharacters() {
+            // 1. PITCHER (Facing home plate)
+            pitcherRig = createCharacterRig(0x1d4ed8, 0x1e40af);
+            pitcherGroup = pitcherRig.group;
+            pitcherGroup.position.set(0, 0.15, CONFIG.moundZ);
+            scene.add(pitcherGroup);
+
+            // 2. BATTER (Right-handed batter standing in left batter's box)
+            batterRig = createCharacterRig(0xd97706, 0x92400e);
+            batterGroup = batterRig.group;
+            batterGroup.position.set(-0.65, 0, CONFIG.plateZ + 0.1);
+            batterGroup.rotation.y = Math.PI / 2; // Facing pitcher
+
+            // Wood Bat
+            const batGeo = new THREE.CylinderGeometry(0.015, 0.035, 0.85);
+            const batMat = new THREE.MeshStandardMaterial({ color: 0x78350f, roughness: 0.4 });
+            const bat = new THREE.Mesh(batGeo, batMat);
+            bat.rotation.z = -Math.PI / 3;
+            bat.position.set(0.2, 0.9, 0.1);
+            batterRig.armRPivot.add(bat);
+            scene.add(batterGroup);
+
+            // 3. CATCHER (Squatting behind Home Plate)
+            catcherRig = createCharacterRig(0x334155, 0x0f172a);
+            catcherGroup = catcherRig.group;
+            catcherGroup.position.set(0, -0.25, CONFIG.plateZ - 0.7);
+            
+            // Catcher Mitt
+            const mitt = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 0.12), new THREE.MeshStandardMaterial({ color: 0x451a03 }));
+            mitt.position.set(0, -0.1, 0.35);
+            catcherRig.armLPivot.add(mitt);
+            scene.add(catcherGroup);
+
+            // 4. UMPIRE (Standing tall right behind catcher)
+            umpireRig = createCharacterRig(0x1e293b, 0x020617);
+            umpireGroup = umpireRig.group;
+            umpireGroup.position.set(0.18, 0, CONFIG.plateZ - 1.4);
+            scene.add(umpireGroup);
+        }
+
+        const PITCH_TYPES = {
+            FASTBALL: { name: '직구 (Four-Seam)', speedMph: [92, 98], breakX: 0, breakY: -0.05 },
+            CURVEBALL: { name: '커브 (Curveball)', speedMph: [74, 82], breakX: -0.12, breakY: -0.38 },
+            SLIDER: { name: '슬라이더 (Slider)', speedMph: [83, 89], breakX: 0.32, breakY: -0.15 },
+            CHANGEUP: { name: '체인지업 (Changeup)', speedMph: [80, 86], breakX: -0.15, breakY: -0.22 }
+        };
+
+        function generatePitchTrajectory() {
+            const keys = Object.keys(PITCH_TYPES);
+            const selectedTypeKey = keys[Math.floor(Math.random() * keys.length)];
+            const typeConfig = PITCH_TYPES[selectedTypeKey];
+
+            const speedMph = Math.floor(Math.random() * (typeConfig.speedMph[1] - typeConfig.speedMph[0])) + typeConfig.speedMph[0];
+            const speedKmh = Math.round(speedMph * 1.60934);
+
+            // 50% Strike Zone Target, 50% Outside
+            const targetInZone = Math.random() < 0.50;
+            let targetX, targetY;
+
+            if (targetInZone) {
+                targetX = (Math.random() - 0.5) * (CONFIG.zoneWidth - 0.04);
+                targetY = CONFIG.zoneBottom + 0.05 + Math.random() * (CONFIG.zoneTop - CONFIG.zoneBottom - 0.1);
+            } else {
+                const isHorizontal = Math.random() < 0.5;
+                if (isHorizontal) {
+                    targetX = (Math.random() < 0.5 ? 1 : -1) * (CONFIG.zoneWidth / 2 + 0.05 + Math.random() * 0.16);
+                    targetY = CONFIG.zoneBottom + Math.random() * (CONFIG.zoneTop - CONFIG.zoneBottom);
+                } else {
+                    targetX = (Math.random() - 0.5) * CONFIG.zoneWidth;
+                    targetY = Math.random() < 0.5 
+                        ? CONFIG.zoneBottom - 0.08 - Math.random() * 0.18
+                        : CONFIG.zoneTop + 0.08 + Math.random() * 0.18;
+                }
+            }
+
+            const releaseX = 0.32;
+            const releaseY = 1.85;
+            const releaseZ = CONFIG.moundZ;
+
+            const flightDuration = (100 / speedMph) * 0.45;
+
+            // FLAWLESS ZERO-BUG MATHEMATICAL CHECK:
+            // Checks if ball's sphere volume touches or crosses the Strike Zone cuboid at z = CONFIG.plateZ plane
+            const ballRadius = CONFIG.ballRadius;
+            const halfZoneW = CONFIG.zoneWidth / 2;
+
+            const isStrike = (
+                targetX + ballRadius >= -halfZoneW &&
+                targetX - ballRadius <= halfZoneW &&
+                targetY + ballRadius >= CONFIG.zoneBottom &&
+                targetY - ballRadius <= CONFIG.zoneTop
+            );
+
+            return {
+                typeName: typeConfig.name,
+                speedKmh: speedKmh,
+                release: new THREE.Vector3(releaseX, releaseY, releaseZ),
+                target: new THREE.Vector3(targetX, targetY, CONFIG.plateZ),
+                breakX: typeConfig.breakX,
+                breakY: typeConfig.breakY,
+                duration: flightDuration,
+                isStrike: isStrike,
+                startTime: 0
+            };
+        }
+
+        function triggerNextPitch() {
+            if (state.isWindup || state.isPitching) return;
+
+            if (state.nextPitchTimer) {
+                clearTimeout(state.nextPitchTimer);
+                state.nextPitchTimer = null;
+            }
+
+            clearPitchTrail();
+
+            state.isWindup = true;
+            state.isPitching = false;
+            state.pitchComplete = false;
+            state.userCalled = false;
+            setCallButtonsState(false);
+
+            document.getElementById('pitch-status-bar').innerHTML = '<i class="fa-solid fa-spinner fa-spin text-amber-400"></i> 투수 와인드업 진행 중...';
+            document.getElementById('call-popup').classList.add('hidden');
+            document.getElementById('radar-ball-dot').classList.add('hidden');
+
+            state.currentPitch = generatePitchTrajectory();
+            document.getElementById('pitch-speed-display').innerText = `${state.currentPitch.speedKmh} km/h`;
+            document.getElementById('pitch-type-display').innerText = state.currentPitch.typeName;
+
+            state.windupStartTime = performance.now();
+            animateWindup();
+        }
+
+        function animateWindup() {
+            if (!state.isWindup) return;
+
+            const now = performance.now();
+            const elapsed = (now - state.windupStartTime) / 1000;
+            const windupDuration = 1.2; // 1.2 second realistic windup animation
+            const progress = Math.min(elapsed / windupDuration, 1.0);
+
+            // Pitcher Rig Windup Motion
+            if (progress < 0.4) {
+                // Raise arms overhead
+                pitcherRig.armRPivot.rotation.x = -Math.PI * (progress / 0.4);
+                pitcherRig.armLPivot.rotation.x = -Math.PI * (progress / 0.4);
+            } else if (progress < 0.75) {
+                // Lift front leg high
+                const legProgress = (progress - 0.4) / 0.35;
+                pitcherRig.legLPivot.rotation.x = -Math.PI * 0.5 * legProgress;
+            } else {
+                // Step forward and release arm
+                const releaseProgress = (progress - 0.75) / 0.25;
+                pitcherRig.legLPivot.rotation.x = -Math.PI * 0.5 * (1 - releaseProgress);
+                pitcherRig.armRPivot.rotation.x = Math.PI * 0.4 * releaseProgress;
+            }
+
+            if (progress < 1.0) {
+                requestAnimationFrame(animateWindup);
+            } else {
+                // Reset pitcher posture & Launch Ball
+                state.isWindup = false;
+                state.isPitching = true;
+                pitcherRig.armRPivot.rotation.x = 0;
+                pitcherRig.armLPivot.rotation.x = 0;
+                pitcherRig.legLPivot.rotation.x = 0;
+
+                baseball.position.copy(state.currentPitch.release);
+                baseball.visible = true;
+
+                state.currentPitch.startTime = performance.now();
+                document.getElementById('pitch-status-bar').innerHTML = '<i class="fa-solid fa-baseball text-emerald-400"></i> 공이 포수를 향해 날아갑니다!';
+                animatePitchFlight();
+            }
+        }
+
+        function animatePitchFlight() {
+            if (!state.isPitching) return;
+
+            const now = performance.now();
+            const elapsed = (now - state.currentPitch.startTime) / 1000;
+            const progress = Math.min(elapsed / state.currentPitch.duration, 1.0);
+
+            const p = state.currentPitch;
+            
+            // Linear Z Trajectory
+            const currentZ = THREE.MathUtils.lerp(p.release.z, p.target.z, progress);
+            
+            // Linear X, Y + Break
+            let currentX = THREE.MathUtils.lerp(p.release.x, p.target.x, progress);
+            let currentY = THREE.MathUtils.lerp(p.release.y, p.target.y, progress);
+
+            const breakFactor = Math.pow(progress, 2);
+            currentX += p.breakX * breakFactor;
+            currentY += p.breakY * breakFactor;
+
+            baseball.position.set(currentX, currentY, currentZ);
+
+            if (state.showTrail && Math.random() < 0.7) {
+                spawnTrailDot(currentX, currentY, currentZ);
+            }
+
+            if (progress < 1.0) {
+                requestAnimationFrame(animatePitchFlight);
+            } else {
+                // Pitch Reached Catcher
+                state.isPitching = false;
+                state.pitchComplete = true;
+                playSound('catch');
+
+                // Batter Swing Decision
+                if (p.isStrike && Math.random() < 0.35) {
+                    animateBatterSwing();
+                }
+
+                setCallButtonsState(true);
+                document.getElementById('pitch-status-bar').innerHTML = '⚡ <b>판정하세요!</b> [볼: ← 방향키 / 스트라이크: 방향키 →]';
+
+                updateRadarOverlay(currentX, currentY);
+            }
+        }
+
+        function animateBatterSwing() {
+            playSound('swing');
+            let swingStart = performance.now();
+            function swingStep() {
+                let el = (performance.now() - swingStart) / 1000;
+                if (el < 0.25) {
+                    batterGroup.rotation.y = Math.PI / 2 + Math.PI * (el / 0.25);
+                    requestAnimationFrame(swingStep);
+                } else {
+                    batterGroup.rotation.y = Math.PI / 2;
+                }
+            }
+            swingStep();
+        }
+
+        function spawnTrailDot(x, y, z) {
+            const dot = new THREE.Mesh(
+                new THREE.SphereGeometry(0.014, 8, 8),
+                new THREE.MeshBasicMaterial({ color: 0xf59e0b, transparent: true, opacity: 0.65 })
+            );
+            dot.position.set(x, y, z);
+            scene.add(dot);
+            pitchTrailPoints.push(dot);
+        }
+
+        function clearPitchTrail() {
+            pitchTrailPoints.forEach(pt => scene.remove(pt));
+            pitchTrailPoints = [];
+        }
+
+        function updateRadarOverlay(crossX, crossY) {
+            const radarDot = document.getElementById('radar-ball-dot');
+
+            const normX = (crossX - (-CONFIG.zoneWidth / 2)) / CONFIG.zoneWidth;
+            const normY = (crossY - CONFIG.zoneBottom) / (CONFIG.zoneTop - CONFIG.zoneBottom);
+
+            const percentLeft = Math.min(Math.max(normX * 100, -10), 110);
+            const percentTop = Math.min(Math.max((1 - normY) * 100, -10), 110);
+
+            radarDot.style.left = `${percentLeft}%`;
+            radarDot.style.top = `${percentTop}%`;
+            
+            radarDot.className = state.currentPitch.isStrike
+                ? "absolute w-3 h-3 rounded-full bg-red-500 border border-white shadow-lg transform -translate-x-1/2 -translate-y-1/2"
+                : "absolute w-3 h-3 rounded-full bg-blue-500 border border-white shadow-lg transform -translate-x-1/2 -translate-y-1/2";
+            
+            radarDot.classList.remove('hidden');
+        }
+
+        function makeCall(userCall) {
+            if (!state.pitchComplete || state.userCalled) return;
+
+            state.userCalled = true;
+            setCallButtonsState(false);
+
+            const pitch = state.currentPitch;
+            const actualIsStrike = pitch.isStrike;
+            const isCorrect = (userCall === 'STRIKE' && actualIsStrike) || (userCall === 'BALL' && !actualIsStrike);
+
+            state.totalCalls++;
+            if (isCorrect) {
+                state.correctCalls++;
+                state.currentStreak++;
+            } else {
+                state.currentStreak = 0;
+            }
+
+            const accuracyPct = Math.round((state.correctCalls / state.totalCalls) * 100);
+            document.getElementById('accuracy-display').innerText = `${accuracyPct}%`;
+            document.getElementById('streak-display').innerText = `${state.currentStreak}회`;
+
+            showCallFeedback(userCall, isCorrect, actualIsStrike);
+            updateGameCount(actualIsStrike);
+
+            // Umpire Punch Motion for Strike
+            if (userCall === 'STRIKE') {
+                umpireRig.armRPivot.rotation.z = -Math.PI * 0.4;
+                setTimeout(() => { umpireRig.armRPivot.rotation.z = 0; }, 600);
+            }
+
+            // AUTO FLOW: Smoothly queue next pitch windup after user decision!
+            document.getElementById('pitch-status-bar').innerHTML = `<i class="fa-solid fa-clock"></i> 판정 완료! ${state.autoNextDelay / 1000}초 후 투구가 자동 시작됩니다.`;
+            state.nextPitchTimer = setTimeout(() => {
+                triggerNextPitch();
+            }, state.autoNextDelay);
+        }
+
+        function showCallFeedback(userCall, isCorrect, actualIsStrike) {
+            const popup = document.getElementById('call-popup');
+            const callText = document.getElementById('call-text');
+            const feedbackText = document.getElementById('feedback-text');
+
+            popup.classList.remove('hidden', 'animate-pop');
+            void popup.offsetWidth;
+            popup.classList.add('animate-pop');
+
+            if (userCall === 'STRIKE') {
+                callText.innerText = "STRIKE!";
+                callText.className = "text-7xl md:text-9xl font-black italic tracking-wider text-red-500 drop-shadow-[0_10px_25px_rgba(239,68,68,0.7)]";
+                playSound('strikeCall');
+            } else {
+                callText.innerText = "BALL!";
+                callText.className = "text-7xl md:text-9xl font-black italic tracking-wider text-blue-400 drop-shadow-[0_10px_25px_rgba(59,130,246,0.7)]";
+                playSound('ballCall');
+            }
+
+            if (isCorrect) {
+                feedbackText.innerText = `정확한 판정! (${actualIsStrike ? '스트라이크 존 통과' : '볼 존 이탈'})`;
+                feedbackText.className = "text-xl md:text-2xl font-bold mt-2 text-emerald-400 drop-shadow";
+            } else {
+                feedbackText.innerText = `판정 오류! 실제 결과: ${actualIsStrike ? '스트라이크' : '볼'}`;
+                feedbackText.className = "text-xl md:text-2xl font-bold mt-2 text-rose-400 drop-shadow";
+            }
+        }
+
+        function updateGameCount(actualIsStrike) {
+            if (actualIsStrike) {
+                state.strikes++;
+                if (state.strikes >= 3) {
+                    state.outs++;
+                    state.strikes = 0;
+                    state.balls = 0;
+                }
+            } else {
+                state.balls++;
+                if (state.balls >= 4) {
+                    state.balls = 0;
+                    state.strikes = 0;
+                }
+            }
+
+            if (state.outs >= 3) {
+                state.outs = 0;
+                state.balls = 0;
+                state.strikes = 0;
+                state.inning++;
+                document.getElementById('inning-display').innerText = `${state.inning}회초`;
+            }
+
+            renderCountIndicators();
+        }
+
+        function renderCountIndicators() {
+            const ballContainer = document.getElementById('balls-indicator');
+            ballContainer.innerHTML = '';
+            for (let i = 0; i < 3; i++) {
+                const dot = document.createElement('span');
+                dot.className = `w-3 h-3 rounded-full border ${i < state.balls ? 'bg-blue-500 border-blue-400 shadow' : 'border-slate-600 bg-slate-800'}`;
+                ballContainer.appendChild(dot);
+            }
+
+            const strikeContainer = document.getElementById('strikes-indicator');
+            strikeContainer.innerHTML = '';
+            for (let i = 0; i < 2; i++) {
+                const dot = document.createElement('span');
+                dot.className = `w-3 h-3 rounded-full border ${i < state.strikes ? 'bg-red-500 border-red-400 shadow' : 'border-slate-600 bg-slate-800'}`;
+                strikeContainer.appendChild(dot);
+            }
+
+            const outContainer = document.getElementById('outs-indicator');
+            outContainer.innerHTML = '';
+            for (let i = 0; i < 2; i++) {
+                const dot = document.createElement('span');
+                dot.className = `w-3 h-3 rounded-full border ${i < state.outs ? 'bg-amber-500 border-amber-400 shadow' : 'border-slate-600 bg-slate-800'}`;
+                outContainer.appendChild(dot);
+            }
+        }
+
+        function setCallButtonsState(enabled) {
+            const btnBall = document.getElementById('btn-ball');
+            const btnStrike = document.getElementById('btn-strike');
+
+            if (enabled) {
+                btnBall.disabled = false;
+                btnStrike.disabled = false;
+                btnBall.classList.remove('opacity-40', 'cursor-not-allowed');
+                btnStrike.classList.remove('opacity-40', 'cursor-not-allowed');
+            } else {
+                btnBall.disabled = true;
+                btnStrike.disabled = true;
+                btnBall.classList.add('opacity-40', 'cursor-not-allowed');
+                btnStrike.classList.add('opacity-40', 'cursor-not-allowed');
+            }
+        }
+
+        function toggleStrikeZone() {
+            state.showZone = !state.showZone;
+            if (strikeZoneBox) strikeZoneBox.visible = state.showZone;
+            const icon = document.getElementById('zone-icon');
+            icon.className = state.showZone ? "fa-solid fa-eye text-emerald-400" : "fa-solid fa-eye-slash text-gray-500";
+        }
+
+        function togglePitchTrail() {
+            state.showTrail = !state.showTrail;
+            if (!state.showTrail) clearPitchTrail();
+            const icon = document.getElementById('trail-icon');
+            icon.className = state.showTrail ? "fa-solid fa-route text-amber-400" : "fa-solid fa-ban text-gray-500";
+        }
+
+        function openSettingsModal() {
+            document.getElementById('settings-modal').classList.remove('hidden');
+        }
+
+        function closeSettingsModal() {
+            state.autoNextDelay = parseInt(document.getElementById('select-auto-delay').value);
+            state.difficulty = document.getElementById('select-difficulty').value;
+            document.getElementById('settings-modal').classList.add('hidden');
+        }
+
+        window.addEventListener('keydown', (e) => {
+            if (!state.pitchComplete || state.userCalled) return;
+
+            if (e.key === 'ArrowLeft') {
+                makeCall('BALL');
+            } else if (e.key === 'ArrowRight') {
+                makeCall('STRIKE');
+            }
+        });
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function renderLoop() {
+            requestAnimationFrame(renderLoop);
+            renderer.render(scene, camera);
+        }
+
+        window.onload = function() {
+            init3D();
+            renderLoop();
+            renderCountIndicators();
+
+            setTimeout(() => {
+                triggerNextPitch();
+            }, 800);
+        };
+    </script>
 </body>
 </html>
